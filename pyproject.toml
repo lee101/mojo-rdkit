@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mojo-rdkit"
+version = "0.1.0"
+description = "Mojo kernels for RDKit-compatible fingerprints and substructure search"
+requires-python = ">=3.10"
+dependencies = ["numpy", "rdkit"]
+license = "MIT"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
