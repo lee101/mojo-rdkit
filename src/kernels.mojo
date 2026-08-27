@@ -1,6 +1,5 @@
 """Allocation-free kernels exposed to the Python bindings through a C ABI."""
 
-from std.algorithm import parallelize
 from std.bit import pop_count
 from std.math import sqrt
 from std.sys.info import simd_width_of
@@ -299,7 +298,7 @@ def mrd_bulk_similarity(
         query_count += Int(pop_count(query[w]))
         w += 1
 
-    @parameter
+    @__parameter
     def compute_row(row: Int):
         var target_count = 0
         var common = 0
@@ -318,18 +317,8 @@ def mrd_bulk_similarity(
             column += 1
         scores[row] = similarity_value(common, query_count, target_count, n_bits, metric)
 
-    @parameter
-    def compute_chunk(chunk: Int):
-        var begin = (chunk * n_targets) // 8
-        var end = ((chunk + 1) * n_targets) // 8
-        for row in range(begin, end):
-            compute_row(row)
-
-    if n_targets * n_words >= 1048576:
-        parallelize[compute_chunk](8, 8)
-    else:
-        for row in range(n_targets):
-            compute_row(row)
+    for row in range(n_targets):
+        compute_row(row)
 
 
 def contains_mapping(
