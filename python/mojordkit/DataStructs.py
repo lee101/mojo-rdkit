@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterable
 
 import numpy as np
@@ -158,6 +160,69 @@ _METRICS = {
     "mcconnaughey": 6,
 }
 
+_BULK_PARALLEL_WORDS = 1_048_576
+_BULK_MAX_WORKERS = 8
+_BULK_EXECUTOR = None
+
+
+def _run_bulk_native(
+    query_words,
+    targets,
+    target_counts,
+    scores,
+    n_targets,
+    n_words,
+    n_bits,
+    metric,
+    query_count,
+):
+    global _BULK_EXECUTOR
+    function = lib().mrd_bulk_similarity
+    query_address = addr(query_words)
+    targets_address = addr(targets)
+    counts_address = addr(target_counts)
+    scores_address = addr(scores)
+    if n_targets * n_words < _BULK_PARALLEL_WORDS:
+        function(
+            query_address,
+            targets_address,
+            counts_address,
+            scores_address,
+            n_targets,
+            n_words,
+            n_bits,
+            metric,
+            query_count,
+        )
+        return
+
+    workers = min(n_targets, _BULK_MAX_WORKERS, os.cpu_count() or 1)
+    if _BULK_EXECUTOR is None:
+        _BULK_EXECUTOR = ThreadPoolExecutor(
+            max_workers=_BULK_MAX_WORKERS,
+            thread_name_prefix="mojordkit-bulk",
+        )
+    futures = []
+    for worker in range(workers):
+        start = worker * n_targets // workers
+        end = (worker + 1) * n_targets // workers
+        futures.append(
+            _BULK_EXECUTOR.submit(
+                function,
+                query_address,
+                targets_address + start * n_words * 8,
+                counts_address + start * 8,
+                scores_address + start * 8,
+                end - start,
+                n_words,
+                n_bits,
+                metric,
+                query_count,
+            )
+        )
+    for future in futures:
+        future.result()
+
 
 def _similarity(left, right, metric: str, returnDistance: bool = False) -> float:
     left = _coerce(left)
@@ -213,17 +278,21 @@ def _bulk(query, others, metric: str, returnDistance: bool = False) -> list[floa
         and cache[2] == ExplicitBitVect._mutation_epoch
     ):
         targets = cache[3]
+        target_counts = cache[4]
+        query_count = cache[5]
         n_vectors = len(signature)
         n_words = len(query._words)
         scores = np.empty(n_vectors, dtype=np.float64)
-        lib().mrd_bulk_similarity(
-            addr(query._words),
-            addr(targets),
-            addr(scores),
+        _run_bulk_native(
+            query._words,
+            targets,
+            target_counts,
+            scores,
             n_vectors,
             n_words,
             len(query),
             _METRICS[metric],
+            query_count,
         )
         if returnDistance:
             scores = 1.0 - scores
@@ -254,6 +323,12 @@ def _bulk(query, others, metric: str, returnDistance: bool = False) -> list[floa
         targets = first._words
     else:
         targets = np.stack([vector._words for vector in vectors])
+    target_counts = np.fromiter(
+        (vector.GetNumOnBits() for vector in vectors),
+        dtype=np.uint64,
+        count=len(vectors),
+    )
+    query_count = query.GetNumOnBits()
     if signature is not None and all(
         isinstance(item, ExplicitBitVect) for item in others
     ):
@@ -262,16 +337,20 @@ def _bulk(query, others, metric: str, returnDistance: bool = False) -> list[floa
             signature,
             ExplicitBitVect._mutation_epoch,
             targets,
+            target_counts,
+            query_count,
         )
     scores = np.empty(len(vectors), dtype=np.float64)
-    lib().mrd_bulk_similarity(
-        addr(query._words),
-        addr(targets),
-        addr(scores),
+    _run_bulk_native(
+        query._words,
+        targets,
+        target_counts,
+        scores,
         len(vectors),
         n_words,
         len(query),
         _METRICS[metric],
+        query_count,
     )
     if returnDistance:
         scores = 1.0 - scores

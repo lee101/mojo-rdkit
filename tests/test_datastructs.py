@@ -125,12 +125,35 @@ def test_similarity_simd_tail_parity():
     )
 
 
+def test_bulk_similarity_simd_tail_parity():
+    size = 13 * 64
+    query = DataStructs.ExplicitBitVect(size, [0, 64, 511, 831])
+    targets = [
+        DataStructs.ExplicitBitVect(size, [0, 129, 511, 830]),
+        DataStructs.ExplicitBitVect(size, [64, 511, 831]),
+    ]
+    ours = DataStructs.BulkTanimotoSimilarity(query, targets)
+    theirs = rdDataStructs.BulkTanimotoSimilarity(
+        query.to_rdkit(), [target.to_rdkit() for target in targets]
+    )
+    assert ours == pytest.approx(theirs)
+
+
 def test_bulk_cache_tracks_vector_mutation():
     query = DataStructs.ExplicitBitVect(128, [1, 64])
     target = DataStructs.ExplicitBitVect(128, [1])
     vectors = [target]
     assert DataStructs.BulkTanimotoSimilarity(query, vectors) == [0.5]
     target.SetBit(64)
+    assert DataStructs.BulkTanimotoSimilarity(query, vectors) == [1.0]
+
+
+def test_bulk_cache_tracks_query_mutation():
+    query = DataStructs.ExplicitBitVect(128, [1])
+    target = DataStructs.ExplicitBitVect(128, [1, 64])
+    vectors = [target]
+    assert DataStructs.BulkTanimotoSimilarity(query, vectors) == [0.5]
+    query.SetBit(64)
     assert DataStructs.BulkTanimotoSimilarity(query, vectors) == [1.0]
 
 

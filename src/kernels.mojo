@@ -259,14 +259,20 @@ def mrd_similarity(
     var right_count = 0
     var common = 0
     comptime W = simd_width_of[DType.float64]()
+    var left_counts = SIMD[DType.uint64, W](0)
+    var right_counts = SIMD[DType.uint64, W](0)
+    var common_counts = SIMD[DType.uint64, W](0)
     var i = 0
     while i + W <= n_words:
         var left_values = left_words.load[width=W](i)
         var right_values = right_words.load[width=W](i)
-        left_count += Int(pop_count(left_values).reduce_add())
-        right_count += Int(pop_count(right_values).reduce_add())
-        common += Int(pop_count(left_values & right_values).reduce_add())
+        left_counts += pop_count(left_values)
+        right_counts += pop_count(right_values)
+        common_counts += pop_count(left_values & right_values)
         i += W
+    left_count = Int(left_counts.reduce_add())
+    right_count = Int(right_counts.reduce_add())
+    common = Int(common_counts.reduce_add())
     while i < n_words:
         left_count += Int(pop_count(left_words[i]))
         right_count += Int(pop_count(right_words[i]))
@@ -279,43 +285,38 @@ def mrd_similarity(
 def mrd_bulk_similarity(
     query_addr: Int,
     targets_addr: Int,
+    target_counts_addr: Int,
     scores_addr: Int,
     n_targets: Int,
     n_words: Int,
     n_bits: Int,
     metric: Int,
+    query_count: Int,
 ) abi("C"):
     var query = U64Ptr(unsafe_from_address=query_addr)
     var targets = U64Ptr(unsafe_from_address=targets_addr)
+    var target_counts = U64Ptr(unsafe_from_address=target_counts_addr)
     var scores = F64Ptr(unsafe_from_address=scores_addr)
-    var query_count = 0
     comptime W = simd_width_of[DType.float64]()
-    var w = 0
-    while w + W <= n_words:
-        query_count += Int(pop_count(query.load[width=W](w)).reduce_add())
-        w += W
-    while w < n_words:
-        query_count += Int(pop_count(query[w]))
-        w += 1
 
     @__parameter
     def compute_row(row: Int):
-        var target_count = 0
-        var common = 0
+        var common_counts = SIMD[DType.uint64, W](0)
         var column = 0
         var row_offset = row * n_words
         while column + W <= n_words:
             var values = targets.load[width=W](row_offset + column)
             var query_values = query.load[width=W](column)
-            target_count += Int(pop_count(values).reduce_add())
-            common += Int(pop_count(query_values & values).reduce_add())
+            common_counts += pop_count(query_values & values)
             column += W
+        var common = Int(common_counts.reduce_add())
         while column < n_words:
             var value = targets[row_offset + column]
-            target_count += Int(pop_count(value))
             common += Int(pop_count(query[column] & value))
             column += 1
-        scores[row] = similarity_value(common, query_count, target_count, n_bits, metric)
+        scores[row] = similarity_value(
+            common, query_count, Int(target_counts[row]), n_bits, metric
+        )
 
     for row in range(n_targets):
         compute_row(row)

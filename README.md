@@ -75,14 +75,15 @@ benchmark fixture construction are outside the timed regions.
 
 | operation | mojo-rdkit | RDKit | RDKit time / Mojo time |
 |---|---:|---:|---:|
-| Morgan radius=2, 800 molecules | 4.821 ms | 18.065 ms | 3.75x faster |
-| Bulk Tanimoto, 5,000 x 2,048-bit | 0.561 ms | 0.600 ms | 1.07x faster |
-| Substructure C8 in C80, all matches | 0.088 ms | 0.141 ms | 1.60x faster |
+| Morgan radius=2, 800 molecules | 4.544 ms | 9.137 ms | 2.01x faster |
+| Bulk Tanimoto, 5,000 x 2,048-bit | 0.480 ms | 0.613 ms | 1.28x faster |
+| Substructure C8 in C80, all matches | 0.094 ms | 0.150 ms | 1.60x faster |
 
 Warm calls reuse immutable molecule topology, query compatibility, and native
 scratch buffers. Returned fingerprints and match tuples remain independent,
 and exposing mutable atoms or bonds disables molecule caching. Bulk similarity
-keeps shared contiguous word matrices zero-copy across the FFI boundary.
+keeps shared contiguous word matrices zero-copy across the FFI boundary and
+caches immutable query and target population counts.
 
 No GPU path is included. Similarity is a low-arithmetic-intensity streaming
 bit scan, while Morgan and substructure kernels operate on small, branchy graph
@@ -100,9 +101,10 @@ Morgan environments use RDKit-compatible 32-bit hash combining. Each radius
 expands a bond-set neighborhood, sorts `(bond invariant, neighbor invariant)`
 pairs, suppresses duplicate environments, and writes codes plus `bitInfo`
 metadata. Fingerprints are stored as contiguous little-endian `uint64` words.
-Similarity kernels scan those words directly using SIMD popcount chunks and a
-scalar remainder. Large independent target batches are split across CPU
-workers after a work-size threshold. Substructure search uses an iterative
+Similarity kernels scan those words directly using SIMD popcount chunks,
+lane-local accumulation, and a scalar remainder. Large independent target
+batches are split into native chunks across a bounded persistent CPU worker
+pool after a 1,048,576-word work threshold. Substructure search uses an iterative
 injective graph mapping, target CSR neighbor traversal, and atom and bond
 predicate matrices without allocation or recursion inside the shared library.
 

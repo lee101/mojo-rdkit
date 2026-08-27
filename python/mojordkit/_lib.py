@@ -15,7 +15,7 @@ F = ctypes.c_double
 _SIGNATURES = {
     "mrd_morgan": ([I] * 27, I),
     "mrd_similarity": ([I, I, I, I, I], F),
-    "mrd_bulk_similarity": ([I, I, I, I, I, I, I], None),
+    "mrd_bulk_similarity": ([I] * 9, None),
     "mrd_substruct_matches": ([I] * 19, I),
 }
 
