@@ -23,7 +23,7 @@ def same_mask(a: U8Ptr, b: U8Ptr, n: Int) -> Bool:
     comptime W = simd_width_of[DType.float64]()
     var i = 0
     while i + W <= n:
-        if a.load[width=W](i) != b.load[width=W](i):
+        if a.unsafe_load[width=W](i) != b.unsafe_load[width=W](i):
             return False
         i += W
     while i < n:
@@ -264,8 +264,8 @@ def mrd_similarity(
     var common_counts = SIMD[DType.uint64, W](0)
     var i = 0
     while i + W <= n_words:
-        var left_values = left_words.load[width=W](i)
-        var right_values = right_words.load[width=W](i)
+        var left_values = left_words.unsafe_load[width=W](i)
+        var right_values = right_words.unsafe_load[width=W](i)
         left_counts += pop_count(left_values)
         right_counts += pop_count(right_values)
         common_counts += pop_count(left_values & right_values)
@@ -305,8 +305,8 @@ def mrd_bulk_similarity(
         var column = 0
         var row_offset = row * n_words
         while column + W <= n_words:
-            var values = targets.load[width=W](row_offset + column)
-            var query_values = query.load[width=W](column)
+            var values = targets.unsafe_load[width=W](row_offset + column)
+            var query_values = query.unsafe_load[width=W](column)
             common_counts += pop_count(query_values & values)
             column += W
         var common = Int(common_counts.reduce_add())
